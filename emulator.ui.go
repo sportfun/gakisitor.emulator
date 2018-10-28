@@ -17,6 +17,7 @@ type UIKey struct {
 
 	Keys []CtrlKey
 }
+
 type Client struct {
 	Id string
 	Ip string
@@ -79,6 +80,24 @@ func NewUI() (*UI, error) {
 	return ui, nil
 }
 
+// Display starts UI
+func (ui *UI) Run() error {
+	// Set keybindings
+	for _, key := range ui.keys {
+		for _, ctrlKey := range key.Keys {
+			err := ui.gui.SetKeybinding("", ctrlKey.Key, ctrlKey.Modifier, ctrlKey.Handlers)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	if err := ui.gui.MainLoop(); err != nil && err != gocui.ErrQuit {
+		return err
+	}
+	return nil
+}
+
 // RegisterCommands allows us to bind a new controller
 func (ui *UI) RegisterCommands(keys ...UIKey) {
 	for _, key := range keys {
@@ -114,24 +133,6 @@ func (ui *UI) AddResponseMessage(message string) {
 		fmt.Fprintln(ui.views.ResponseMessages, message)
 		return nil
 	})
-}
-
-// Display starts UI
-func (ui *UI) Display() error {
-	// Set keybindings
-	for _, key := range ui.keys {
-		for _, ctrlKey := range key.Keys {
-			err := ui.gui.SetKeybinding("", ctrlKey.Key, ctrlKey.Modifier, ctrlKey.Handlers)
-			if err != nil {
-				return err
-			}
-		}
-	}
-
-	if err := ui.gui.MainLoop(); err != nil && err != gocui.ErrQuit {
-		return err
-	}
-	return nil
 }
 
 // controllerView updates/generates the main ui

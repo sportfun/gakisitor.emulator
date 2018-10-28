@@ -1,25 +1,24 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"github.com/graarh/golang-socketio"
 	"github.com/graarh/golang-socketio/transport"
 	"github.com/jroimartin/gocui"
+	"gopkg.in/urfave/cli.v1"
 	"net/http"
 	"sync"
 )
 
-type network struct {
+type game struct {
 	*sync.RWMutex
+	*UI
 	clients []Client
 	sockets []*gosocketio.Channel
 }
 
-func (n *network) Register(ui *UI) {
-	port := flag.Int("port", 8080, "SocketIO port")
-	flag.Parse()
-
+func (n *game) Register(ui *UI, c *cli.Context) {
+	n.UI = ui
 	socket := gosocketio.NewServer(transport.GetDefaultWebsocketTransport())
 	n.RWMutex = &sync.RWMutex{}
 
@@ -74,94 +73,88 @@ func (n *network) Register(ui *UI) {
 
 	// Setup keybinding
 	ui.RegisterCommands(
-		n.startSessionKey(ui),
-		n.stopSessionKey(ui),
-		n.disconnectKey(ui),
+		UIKey{
+			ShortName: "S^",
+			LongName:  "Start acquisition session",
+			Keys: []CtrlKey{
+				{
+					Key:      gocui.KeyCtrlS,
+					Modifier: gocui.ModNone,
+					Handlers: n.startSession,
+				},
+			},
+		},
+		UIKey{
+			ShortName: "X^",
+			LongName:  "Stop acquisition session",
+			Keys: []CtrlKey{
+				{
+					Key:      gocui.KeyCtrlX,
+					Modifier: gocui.ModNone,
+					Handlers: n.stopSession,
+				},
+			},
+		},
+		UIKey{
+			ShortName: "D^",
+			LongName:  "Disconnect client",
+			Keys: []CtrlKey{
+				{
+					Key:      gocui.KeyCtrlD,
+					Modifier: gocui.ModNone,
+					Handlers: n.disconnect,
+				},
+			},
+		},
 	)
 
-	// start server
+	// start game
 	serveMux := http.NewServeMux()
 	serveMux.Handle("/", socket)
-	go http.ListenAndServe(fmt.Sprintf("0.0.0.0:%d", *port), serveMux)
+	go http.ListenAndServe(fmt.Sprintf("0.0.0.0:%d", c.Int("port")), serveMux)
 }
 
-func (n *network) startSessionKey(ui *UI) UIKey {
-	return UIKey{
-		ShortName: "S^",
-		LongName:  "Start acquisition session",
-		Keys: []CtrlKey{
-			{
-				Key:      gocui.KeyCtrlS,
-				Modifier: gocui.ModNone,
-				Handlers: func(gui *gocui.Gui, view *gocui.View) error {
-					n.RLock()
-					defer n.RUnlock()
+func (n *game) startSession(gui *gocui.Gui, view *gocui.View) error {
+	n.RLock()
+	defer n.RUnlock()
 
-					for _, socket := range n.sockets {
-						ui.AddRequestMessage(fmt.Sprintf("%s > start session", socket.Id()))
-						socket.Emit("command", map[string]interface{}{
-							"link_id": "00000000-0000-0000-00000000",
-							"body": map[string]interface{}{
-								"command": "start_game",
-								"args":    []string{},
-							},
-						})
-					}
-					return nil
-				},
+	for _, socket := range n.sockets {
+		n.AddRequestMessage(fmt.Sprintf("%s > start session", socket.Id()))
+		socket.Emit("command", map[string]interface{}{
+			"link_id": "00000000-0000-0000-00000000",
+			"body": map[string]interface{}{
+				"command": "start_game",
+				"args":    []string{},
 			},
-		},
+		})
 	}
+	return nil
 }
 
-func (n *network) stopSessionKey(ui *UI) UIKey {
-	return UIKey{
-		ShortName: "X^",
-		LongName:  "Stop acquisition session",
-		Keys: []CtrlKey{
-			{
-				Key:      gocui.KeyCtrlX,
-				Modifier: gocui.ModNone,
-				Handlers: func(gui *gocui.Gui, view *gocui.View) error {
-					n.RLock()
-					defer n.RUnlock()
+func (n *game) stopSession(gui *gocui.Gui, view *gocui.View) error {
+	n.RLock()
+	defer n.RUnlock()
 
-					for _, socket := range n.sockets {
-						ui.AddRequestMessage(fmt.Sprintf("%s > stop session", socket.Id()))
-						socket.Emit("command", map[string]interface{}{
-							"link_id": "00000000-0000-0000-00000000",
-							"body": map[string]interface{}{
-								"command": "end_game",
-								"args":    []string{},
-							},
-						})
-					}
-					return nil
-				},
+	for _, socket := range n.sockets {
+		n.AddRequestMessage(fmt.Sprintf("%s > stop session", socket.Id()))
+		socket.Emit("command", map[string]interface{}{
+			"link_id": "00000000-0000-0000-00000000",
+			"body": map[string]interface{}{
+				"command": "end_game",
+				"args":    []string{},
 			},
-		},
+		})
 	}
+	return nil
 }
 
-func (n *network) disconnectKey(ui *UI) UIKey {
-	return UIKey{
-		ShortName: "D^",
-		LongName:  "Disconnect client",
-		Keys: []CtrlKey{
-			{
-				Key:      gocui.KeyCtrlD,
-				Modifier: gocui.ModNone,
-				Handlers: func(gui *gocui.Gui, view *gocui.View) error {
-					n.RLock()
-					defer n.RUnlock()
+func (n *game) disconnect(gui *gocui.Gui, view *gocui.View) error {
+	n.RLock()
+	defer n.RUnlock()
 
-					for _, socket := range n.sockets {
-						ui.AddRequestMessage(fmt.Sprintf("%s > start session", socket.Id()))
-						socket.Close()
-					}
-					return nil
-				},
-			},
-		},
+	for _, socket := range n.sockets {
+		n.AddRequestMessage(fmt.Sprintf("%s > start session", socket.Id()))
+		socket.Close()
 	}
+	return nil
 }
