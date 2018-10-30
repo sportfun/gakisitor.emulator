@@ -3,12 +3,12 @@ package main
 import (
 	"fmt"
 	"github.com/graarh/golang-socketio"
-	"github.com/graarh/golang-socketio/transport"
 	"github.com/jroimartin/gocui"
+	"gopkg.in/sportfun/gakisitor.v2/protocol/v1.0"
 	"gopkg.in/urfave/cli.v1"
-	"net/http"
 	"sync"
 )
+
 
 type game struct {
 	*sync.RWMutex
@@ -17,9 +17,27 @@ type game struct {
 	sockets []*gosocketio.Channel
 }
 
-func (n *game) Register(ui *UI, c *cli.Context) {
+var (
+	moveRight = v1_0.CommandPacket{
+		Type: "game",
+		LinkID: link_id,
+		Body: struct {
+			Command string `json:"command"`
+			Args    []interface{} `json:"args"`
+		}{Command: "start_game", Args: nil},
+	}
+	endGame = v1_0.CommandPacket{
+		Type: "game",
+		LinkID: link_id,
+		Body: struct {
+			Command string `json:"command"`
+			Args    []interface{} `json:"args"`
+		}{Command: "end_game", Args: nil},
+	}
+)
+
+func (n *game) Register(ui *UI, _ *cli.Context, socket socketIO) {
 	n.UI = ui
-	socket := gosocketio.NewServer(transport.GetDefaultWebsocketTransport())
 	n.RWMutex = &sync.RWMutex{}
 
 	// Setup handler
@@ -29,10 +47,11 @@ func (n *game) Register(ui *UI, c *cli.Context) {
 			defer n.Unlock()
 
 			// Log client connection
-			ui.AddResponseMessage(fmt.Sprintf("client connection ('%socket')", c.Id()))
+			ui.AddResponseMessage(fmt.Sprintf("client connection ('%s')", c.Id()))
 
 			// Update client list
 			n.clients = append(n.clients, Client{c.Id(), c.Ip()})
+			n.sockets = append(n.sockets, c)
 			ui.RefreshClients(n.clients...)
 			return nil
 		})
@@ -43,7 +62,7 @@ func (n *game) Register(ui *UI, c *cli.Context) {
 			defer n.Unlock()
 
 			// Log client disconnection
-			ui.AddResponseMessage(fmt.Sprintf("client disconnection ('%socket')", c.Id()))
+			ui.AddResponseMessage(fmt.Sprintf("client disconnection ('%s')", c.Id()))
 
 			// Find client index list
 			var idx int
@@ -57,6 +76,8 @@ func (n *game) Register(ui *UI, c *cli.Context) {
 			// Update client list
 			n.clients[idx] = n.clients[len(n.clients)-1]
 			n.clients = n.clients[:len(n.clients)-1]
+			n.sockets[idx] = n.sockets[len(n.sockets)-1]
+			n.sockets = n.sockets[:len(n.sockets)-1]
 			ui.RefreshClients(n.clients...)
 			return nil
 		})
@@ -80,7 +101,7 @@ func (n *game) Register(ui *UI, c *cli.Context) {
 				{
 					Key:      gocui.KeyCtrlS,
 					Modifier: gocui.ModNone,
-					Handlers: n.startSession,
+					Handlers: n.startAcquisitionSession,
 				},
 			},
 		},
@@ -91,7 +112,7 @@ func (n *game) Register(ui *UI, c *cli.Context) {
 				{
 					Key:      gocui.KeyCtrlX,
 					Modifier: gocui.ModNone,
-					Handlers: n.stopSession,
+					Handlers: n.stopAcquisitionSession,
 				},
 			},
 		},
@@ -107,43 +128,26 @@ func (n *game) Register(ui *UI, c *cli.Context) {
 			},
 		},
 	)
-
-	// start game
-	serveMux := http.NewServeMux()
-	serveMux.Handle("/", socket)
-	go http.ListenAndServe(fmt.Sprintf("0.0.0.0:%d", c.Int("port")), serveMux)
 }
 
-func (n *game) startSession(gui *gocui.Gui, view *gocui.View) error {
+func (n *game) startAcquisitionSession(gui *gocui.Gui, view *gocui.View) error {
 	n.RLock()
 	defer n.RUnlock()
 
 	for _, socket := range n.sockets {
-		n.AddRequestMessage(fmt.Sprintf("%s > start session", socket.Id()))
-		socket.Emit("command", map[string]interface{}{
-			"link_id": "00000000-0000-0000-00000000",
-			"body": map[string]interface{}{
-				"command": "start_game",
-				"args":    []string{},
-			},
-		})
+		n.AddRequestMessage(fmt.Sprintf("%s > start acquisition session", socket.Id()))
+		socket.Emit("command", moveRight)
 	}
 	return nil
 }
 
-func (n *game) stopSession(gui *gocui.Gui, view *gocui.View) error {
+func (n *game) stopAcquisitionSession(gui *gocui.Gui, view *gocui.View) error {
 	n.RLock()
 	defer n.RUnlock()
 
 	for _, socket := range n.sockets {
 		n.AddRequestMessage(fmt.Sprintf("%s > stop session", socket.Id()))
-		socket.Emit("command", map[string]interface{}{
-			"link_id": "00000000-0000-0000-00000000",
-			"body": map[string]interface{}{
-				"command": "end_game",
-				"args":    []string{},
-			},
-		})
+		socket.Emit("command", endGame)
 	}
 	return nil
 }
