@@ -5,6 +5,7 @@ import (
 	"github.com/graarh/golang-socketio"
 	"github.com/graarh/golang-socketio/transport"
 	"github.com/satori/go.uuid"
+	"gopkg.in/sportfun/gakisitor.v2/protocol/v1.0"
 	"gopkg.in/urfave/cli.v1"
 	"net/http"
 	"os"
@@ -19,7 +20,13 @@ type socketIO interface {
 	On(string, interface{}) error
 }
 
-var link_id = uuid.Must(uuid.NewV4()).String()
+var link = v1_0.CommandPacket{
+	Body: struct {
+		Command string `json:"command"`
+		Args    []interface{} `json:"args"`
+	}{Command: "link", Args: nil},
+}
+
 
 func main() {
 	app := cli.NewApp()
@@ -37,6 +44,11 @@ func main() {
 			Name:  "host",
 			Usage: "socket.io host for connection",
 			Value: "localhost",
+		},
+		cli.StringFlag{
+			Name:  "link_id, id",
+			Usage: "link id",
+			Value: uuid.Must(uuid.NewV4()).String(),
 		},
 		cli.BoolFlag{
 			Name:  "server",

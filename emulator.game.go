@@ -18,9 +18,8 @@ type game struct {
 }
 
 var (
-	moveRight = v1_0.CommandPacket{
+	startGame = v1_0.CommandPacket{
 		Type: "game",
-		LinkID: link_id,
 		Body: struct {
 			Command string `json:"command"`
 			Args    []interface{} `json:"args"`
@@ -28,7 +27,6 @@ var (
 	}
 	endGame = v1_0.CommandPacket{
 		Type: "game",
-		LinkID: link_id,
 		Body: struct {
 			Command string `json:"command"`
 			Args    []interface{} `json:"args"`
@@ -36,9 +34,15 @@ var (
 	}
 )
 
-func (n *game) Register(ui *UI, _ *cli.Context, socket socketIO) {
+func (n *game) Register(ui *UI, ctx *cli.Context, socket socketIO) {
 	n.UI = ui
 	n.RWMutex = &sync.RWMutex{}
+
+	// Setup LinkId
+	link.LinkID = ctx.Parent().String("id")
+	link.Type = "game"
+	startGame.LinkID = ctx.Parent().String("id")
+	endGame.LinkID = ctx.Parent().String("id")
 
 	// Setup handler
 	socket.On(gosocketio.OnConnection, func(c *gosocketio.Channel, a interface{}) {
@@ -53,6 +57,10 @@ func (n *game) Register(ui *UI, _ *cli.Context, socket socketIO) {
 			n.clients = append(n.clients, Client{c.Id(), c.Ip()})
 			n.sockets = append(n.sockets, c)
 			ui.RefreshClients(n.clients...)
+
+			// Start link
+			ui.AddRequestMessage(fmt.Sprintf("%s > start linkage", c.Id()))
+			c.Emit("command", link)
 			return nil
 		})
 	})
@@ -87,6 +95,9 @@ func (n *game) Register(ui *UI, _ *cli.Context, socket socketIO) {
 	})
 	socket.On("data", func(c *gosocketio.Channel, a interface{}) {
 		ui.AddResponseMessage(fmt.Sprintf("[%socket]{data}      \033[36m%#v\033[0m", c.Id(), a))
+	})
+	socket.On("info", func(c *gosocketio.Channel, a interface{}) {
+		ui.AddResponseMessage(fmt.Sprintf("[%socket]{info}      \033[36m%#v\033[0m", c.Id(), a))
 	})
 	socket.On("error", func(c *gosocketio.Channel, a interface{}) {
 		ui.AddResponseMessage(fmt.Sprintf("[%socket]{error}     \033[31m%#v\033[0m", c.Id(), a))
@@ -136,7 +147,7 @@ func (n *game) startAcquisitionSession(gui *gocui.Gui, view *gocui.View) error {
 
 	for _, socket := range n.sockets {
 		n.AddRequestMessage(fmt.Sprintf("%s > start acquisition session", socket.Id()))
-		socket.Emit("command", moveRight)
+		socket.Emit("command", startGame)
 	}
 	return nil
 }

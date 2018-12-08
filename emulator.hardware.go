@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/graarh/golang-socketio"
 	"github.com/jroimartin/gocui"
@@ -20,15 +21,13 @@ type hardware struct {
 var (
 	moveLeft = v1_0.DataPacket{
 		Type: "hardware",
-		LinkId: link_id,
 		Body: struct {
 			Module string `json:"module"`
 			Value  interface{} `json:"value"`
 		}{Module: "controller", Value: 0},
 	}
-	turnRight = v1_0.DataPacket{
+	moveRight = v1_0.DataPacket{
 		Type: "hardware",
-		LinkId: link_id,
 		Body: struct {
 			Module string `json:"module"`
 			Value  interface{} `json:"value"`
@@ -36,7 +35,6 @@ var (
 	}
 	rpm = v1_0.DataPacket{
 		Type: "hardware",
-		LinkId: link_id,
 		Body: struct {
 			Module string `json:"module"`
 			Value  interface{} `json:"value"`
@@ -49,6 +47,13 @@ func (h *hardware) Register(ui *UI, ctx *cli.Context, socket socketIO) {
 	h.UI = ui
 	h.RWMutex = &sync.RWMutex{}
 	rpm.Body.Value = ctx.Float64("speed")
+
+	// Setup LinkId
+	link.LinkID = ctx.Parent().String("id")
+	link.Type = "hardware"
+	moveLeft.LinkId = ctx.Parent().String("id")
+	moveRight.LinkId = ctx.Parent().String("id")
+	rpm.LinkId = ctx.Parent().String("id")
 
 	// Setup handler
 	socket.On(gosocketio.OnConnection, func(c *gosocketio.Channel, a interface{}) {
@@ -63,6 +68,10 @@ func (h *hardware) Register(ui *UI, ctx *cli.Context, socket socketIO) {
 			h.clients = append(h.clients, Client{c.Id(), c.Ip()})
 			h.sockets = append(h.sockets, c)
 			ui.RefreshClients(h.clients...)
+
+			// Start link
+			ui.AddRequestMessage(fmt.Sprintf("%s > start linkage", c.Id()))
+			c.Emit("command", link)
 			return nil
 		})
 	})
@@ -154,6 +163,7 @@ func (h *hardware) Register(ui *UI, ctx *cli.Context, socket socketIO) {
 		for ;; {
 			h.RLock()
 			for _, socket := range h.sockets {
+				h.AddRequestMessage(fmt.Sprintf("%s > send RPM (%v)", socket.Id(), rpm))
 				socket.Emit("data", rpm)
 			}
 			h.RUnlock()
@@ -167,7 +177,8 @@ func (h *hardware) moveLeft(gui *gocui.Gui, view *gocui.View) error {
 	defer h.RUnlock()
 
 	for _, socket := range h.sockets {
-		h.AddRequestMessage(fmt.Sprintf("%s > move left", socket.Id()))
+		b, _ := json.Marshal(moveLeft)
+		h.AddRequestMessage(fmt.Sprintf("%s > move left (%s)", socket.Id(), string(b)))
 		socket.Emit("data", moveLeft)
 	}
 	return nil
@@ -177,7 +188,8 @@ func (h *hardware) moveRight(gui *gocui.Gui, view *gocui.View) error {
 	defer h.RUnlock()
 
 	for _, socket := range h.sockets {
-		h.AddRequestMessage(fmt.Sprintf("%s > move right", socket.Id()))
+		b, _ := json.Marshal(moveRight)
+		h.AddRequestMessage(fmt.Sprintf("%s > move right (%s)", socket.Id(), string(b)))
 		socket.Emit("data", moveRight)
 	}
 	return nil
